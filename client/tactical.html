@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Tactical RPG Demo</title>
+<style>
+  canvas { background: #222; display: block; margin: 0 auto; }
+  #message { text-align:center; color:white; margin-top:10px; }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas" width="480" height="480"></canvas>
+<div id="message"></div>
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const tileSize = 60;
+const rows = 8;
+const cols = 8;
+
+class Unit {
+  constructor(id, row, col, hp, color) {
+    this.id = id;
+    this.row = row;
+    this.col = col;
+    this.hp = hp;
+    this.color = color;
+  }
+  draw() {
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.col * tileSize + tileSize/2, this.row * tileSize + tileSize/2, tileSize/3, 0, 2*Math.PI);
+    ctx.fill();
+    ctx.fillStyle = 'red';
+    ctx.fillRect(this.col * tileSize + 5, this.row * tileSize + tileSize - 10, tileSize - 10, 5);
+    ctx.fillStyle = 'lime';
+    ctx.fillRect(this.col * tileSize + 5, this.row * tileSize + tileSize - 10, (tileSize - 10) * (this.hp / 100), 5);
+  }
+}
+
+let player = new Unit('player', 6, 1, 100, 'yellow');
+let enemies = [
+  new Unit('enemy1', 1, 6, 60, 'red'),
+  new Unit('enemy2', 2, 4, 60, 'red')
+];
+
+let currentTurn = 'player';
+let message = document.getElementById('message');
+
+function drawGrid() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = '#555';
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      ctx.strokeRect(c * tileSize, r * tileSize, tileSize, tileSize);
+    }
+  }
+}
+
+function drawUnits() {
+  player.draw();
+  enemies.forEach(e => e.draw());
+}
+
+function render() {
+  drawGrid();
+  drawUnits();
+}
+
+function getTileFromMouse(x, y) {
+  const rect = canvas.getBoundingClientRect();
+  const cx = x - rect.left;
+  const cy = y - rect.top;
+  const col = Math.floor(cx / tileSize);
+  const row = Math.floor(cy / tileSize);
+  return { row, col };
+}
+
+function isAdjacent(unit, tile) {
+  return Math.abs(unit.row - tile.row) + Math.abs(unit.col - tile.col) === 1;
+}
+
+function moveUnit(unit, tile) {
+  unit.row = tile.row;
+  unit.col = tile.col;
+}
+
+function attack(attacker, target) {
+  target.hp -= 30;
+  if (target.hp <= 0) {
+    if (target.id === 'player') {
+      message.textContent = 'You lost!';
+    } else {
+      enemies = enemies.filter(e => e.id !== target.id);
+      if (enemies.length === 0) {
+        message.textContent = 'You won!';
+      }
+    }
+  }
+}
+
+function enemyTurn() {
+  enemies.forEach(enemy => {
+    if (Math.abs(enemy.row - player.row) + Math.abs(enemy.col - player.col) === 1) {
+      attack(enemy, player);
+    } else {
+      let dr = player.row - enemy.row;
+      let dc = player.col - enemy.col;
+      if (Math.abs(dr) > Math.abs(dc)) {
+        enemy.row += Math.sign(dr);
+      } else {
+        enemy.col += Math.sign(dc);
+      }
+    }
+  });
+  currentTurn = 'player';
+  render();
+}
+
+canvas.addEventListener('click', (e) => {
+  if (currentTurn !== 'player') return;
+  if (message.textContent) return;
+  const tile = getTileFromMouse(e.clientX, e.clientY);
+  const targetEnemy = enemies.find(en => en.row === tile.row && en.col === tile.col && isAdjacent(player, tile));
+  if (targetEnemy) {
+    attack(player, targetEnemy);
+    currentTurn = 'enemy';
+    render();
+    setTimeout(enemyTurn, 500);
+    return;
+  }
+  if (Math.abs(player.row - tile.row) + Math.abs(player.col - tile.col) === 1) {
+    moveUnit(player, tile);
+    currentTurn = 'enemy';
+    render();
+    setTimeout(enemyTurn, 500);
+  }
+});
+
+render();
+</script>
+</body>
+</html>
