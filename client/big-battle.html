@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Big Tactical RPG Demo</title>
+  <style>
+    body { background: #333; color: #fff; font-family: sans-serif; text-align:center; }
+    #game { margin: 20px auto; border: 1px solid #555; display: block; }
+  </style>
+</head>
+<body>
+  <h1>Big Tactical RPG Demo</h1>
+  <p>Click on a player unit to select it. Then click on an adjacent tile to move or click on an enemy within range to attack.</p>
+  <canvas id="game" width="500" height="500"></canvas>
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const gridSize = 10;
+    const tileSize = canvas.width / gridSize;
+
+    class Unit {
+      constructor(id, type, row, col, hp, attack, range, color, label) {
+        this.id = id;
+        this.type = type;
+        this.row = row;
+        this.col = col;
+        this.hp = hp;
+        this.maxHp = hp;
+        this.attack = attack;
+        this.range = range;
+        this.color = color;
+        this.label = label;
+      }
+      center() {
+        return { x: this.col * tileSize + tileSize/2, y: this.row * tileSize + tileSize/2 };
+      }
+    }
+
+    // Player units
+    const players = [
+      new Unit('tank', 'tank', 9, 1, 200, 20, 1, '#3498db', 'Tank'),
+      new Unit('archer', 'archer', 9, 3, 80, 30, 3, '#2ecc71', 'Archer'),
+      new Unit('fighter', 'fighter', 9, 5, 100, 40, 1, '#e67e22', 'Fighter')
+    ];
+
+    // Enemies
+    let enemies = [
+      new Unit('enemy1', 'enemy', 1, 8, 60, 20, 1, '#e74c3c', 'Enemy'),
+      new Unit('enemy2', 'enemy', 3, 7, 60, 20, 1, '#e74c3c', 'Enemy'),
+      new Unit('enemy3', 'enemy', 1, 6, 60, 20, 1, '#e74c3c', 'Enemy'),
+      new Unit('enemy4', 'enemy', 2, 8, 60, 20, 1, '#e74c3c', 'Enemy')
+    ];
+
+    let selected = null;
+    let attackEffect = null; // {from: {x,y}, to:{x,y}, endTime}
+
+    function drawGrid() {
+      ctx.strokeStyle = '#555';
+      for (let i = 0; i <= gridSize; i++) {
+        ctx.beginPath();
+        ctx.moveTo(0, i * tileSize);
+        ctx.lineTo(canvas.width, i * tileSize);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(i * tileSize, 0);
+        ctx.lineTo(i * tileSize, canvas.height);
+        ctx.stroke();
+      }
+    }
+
+    function drawUnit(unit, isSelected=false) {
+      const x = unit.col * tileSize;
+      const y = unit.row * tileSize;
+      ctx.fillStyle = unit.color;
+      ctx.fillRect(x + 4, y + 4, tileSize - 8, tileSize - 8);
+      // HP bar
+      ctx.fillStyle = '#222';
+      ctx.fillRect(x + 4, y + tileSize - 12, tileSize - 8, 8);
+      ctx.fillStyle = '#0f0';
+      const hpWidth = (tileSize - 8) * (unit.hp / unit.maxHp);
+      ctx.fillRect(x + 4, y + tileSize - 12, hpWidth, 8);
+      // Label
+      ctx.fillStyle = '#fff';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(unit.label, x + tileSize/2, y + tileSize/2 + 3);
+      if (isSelected) {
+        ctx.strokeStyle = '#f1c40f';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x + 2, y + 2, tileSize - 4, tileSize - 4);
+        ctx.lineWidth = 1;
+      }
+    }
+
+    function drawAttackEffect() {
+      if (attackEffect && performance.now() < attackEffect.endTime) {
+        ctx.strokeStyle = '#f1c40f';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(attackEffect.from.x, attackEffect.from.y);
+        ctx.lineTo(attackEffect.to.x, attackEffect.to.y);
+        ctx.stroke();
+      }
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawGrid();
+      // Draw enemies
+      enemies.forEach(e => drawUnit(e));
+      // Draw players
+      players.forEach(p => drawUnit(p, p === selected));
+      drawAttackEffect();
+      requestAnimationFrame(render);
+    }
+    render();
+
+    function distance(u1, u2) {
+      return Math.max(Math.abs(u1.row - u2.row), Math.abs(u1.col - u2.col));
+    }
+
+    function handleClick(event) {
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const col = Math.floor(x / tileSize);
+      const row = Math.floor(y / tileSize);
+
+      // If clicking on a player unit
+      const clickedPlayer = players.find(p => p.row === row && p.col === col);
+      if (clickedPlayer) {
+        selected = clickedPlayer;
+        return;
+      }
+
+      if (!selected) return;
+
+      // If clicking on an enemy within range of selected for attack
+      const clickedEnemy = enemies.find(e => e.row === row && e.col === col);
+      if (clickedEnemy) {
+        const dist = distance(selected, clickedEnemy);
+        if (dist <= selected.range) {
+          // Attack
+          clickedEnemy.hp -= selected.attack;
+          attackEffect = {
+            from: selected.center(),
+            to: clickedEnemy.center(),
+            endTime: performance.now() + 300
+          };
+          if (clickedEnemy.hp <= 0) {
+            enemies = enemies.filter(e => e !== clickedEnemy);
+          }
+          // After attack, enemy turn
+          enemyTurn();
+        }
+        return;
+      }
+
+      // If clicking on empty tile to move (1 step)
+      const distRow = Math.abs(row - selected.row);
+      const distCol = Math.abs(col - selected.col);
+      if ((distRow + distCol) === 1 && row >= 0 && row < gridSize && col >= 0 && col < gridSize) {
+        // Check that tile not occupied by other players or enemies
+        const occupied = players.some(p => p.row === row && p.col === col) || enemies.some(e => e.row === row && e.col === col);
+        if (!occupied) {
+          selected.row = row;
+          selected.col = col;
+          enemyTurn();
+        }
+      }
+    }
+
+    function enemyTurn() {
+      // each enemy moves one step toward nearest player if not adjacent; else attack
+      enemies.forEach(enemy => {
+        // find nearest player
+        let nearest = null;
+        let minDist = Infinity;
+        players.forEach(p => {
+          if (p.hp > 0) {
+            const dist = distance(enemy, p);
+            if (dist < minDist) {
+              minDist = dist;
+              nearest = p;
+            }
+          }
+        });
+        if (!nearest) return;
+        if (minDist <= enemy.range) {
+          // attack
+          nearest.hp -= enemy.attack;
+          attackEffect = {
+            from: enemy.center(),
+            to: nearest.center(),
+            endTime: performance.now() + 300
+          };
+          if (nearest.hp <= 0) {
+            const idx = players.indexOf(nearest);
+            if (idx !== -1) players.splice(idx, 1);
+            if (selected === nearest) selected = null;
+          }
+        } else {
+          // move one step closer
+          const rowDir = nearest.row > enemy.row ? 1 : (nearest.row < enemy.row ? -1 : 0);
+          const colDir = nearest.col > enemy.col ? 1 : (nearest.col < enemy.col ? -1 : 0);
+          const newRow = enemy.row + rowDir;
+          const newCol = enemy.col + colDir;
+          const occupied = players.some(p => p.row === newRow && p.col === newCol) || enemies.some(e => e !== enemy && e.row === newRow && e.col === newCol);
+          if (!occupied && newRow >= 0 && newRow < gridSize && newCol >= 0 && newCol < gridSize) {
+            enemy.row = newRow;
+            enemy.col = newCol;
+          }
+        }
+      });
+    }
+
+    canvas.addEventListener('click', handleClick);
+  </script>
+</body>
+</html>
